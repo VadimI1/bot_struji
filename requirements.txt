@@ -1,0 +1,4 @@
+python-dotenv==0.21.1
+telebot==0.0.5
+aiogram==2.25.2
+psycopg2-binary==2.9.9
