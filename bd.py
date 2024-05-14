@@ -17,11 +17,9 @@ class bd_connect:
         [self.sql_execute(TABLE[i]) for i in range(2)]
 
     def sql_execute(self, sql):
-        print(sql)
         return self.cursor.execute(sql)
 
     def sql_execute_get(self, sql):
-        print(sql)
         self.cursor.execute(sql)
         return self.cursor.fetchall()
 
