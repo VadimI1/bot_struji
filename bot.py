@@ -34,6 +34,8 @@ class SG(StatesGroup):
     new_promocode = State()
     name = State()
     phone = State()
+    new_name_promocode = State()
+    ban = State()
 
 markup_user = ReplyKeyboardMarkup()
 markup_admin = ReplyKeyboardMarkup()
@@ -50,9 +52,10 @@ btn7 = KeyboardButton("Редактировать промокод")
 btn8 = KeyboardButton("Просмотр пользователей")
 btn9 = KeyboardButton("Редактировать пользователя")
 btn10 = KeyboardButton("Закрыть сезон")
+btn11 = KeyboardButton("Блокировка пользователя")
 
 markup_user.add(btn1, btn2, btn3)
-markup_admin.add(btn4, btn5, btn6,btn7, btn8, btn9, btn10)
+markup_admin.add(btn4, btn5, btn6,btn7, btn8, btn9, btn10, btn11)
 
 promcode_info, promcode_ed = '', ''
 
@@ -61,11 +64,13 @@ async def start_bot(message):
     bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
                     os.environ.get('DB_NAME'))
     id = bd.sql_execute_get(
-        f"SELECT \"ID\" FROM \"Пользователи\" WHERE \"id_messages\" = '{message.from_user.id}'")
+        f"SELECT \"ID\", \"Ban\" FROM \"Пользователи\" WHERE \"id_messages\" = '{message.from_user.id}'")
     if not id:#проверка есть ли пользователь в БД
         await bot.send_message(message.chat.id, 'Введите ваше имя',
                                reply_markup=markup_user)
         await SG.name.set()
+    elif id[0][1]:
+        await bot.send_message(message.chat.id, "Вас заблокировали", reply_markup=markup_user)
 
     bd.bd_close()
 
@@ -95,13 +100,16 @@ async def start_bot(message):
     bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
                     os.environ.get('DB_NAME'))
     id = bd.sql_execute_get(
-        f"SELECT \"ID\", \"Статус\" FROM \"Пользователи\" WHERE \"id_messages\" = '{message.from_user.id}'")
+        f"SELECT \"ID\", \"Статус\", \"Ban\" FROM \"Пользователи\" WHERE \"id_messages\" = '{message.from_user.id}'")
     bd.bd_close()
     if id:
-        if id[0][1]:#проверка есть ли пользователь в БД
-            await bot.send_message(message.chat.id, "Режим администратора включен.", reply_markup=markup_admin)
+        if not id[0][2]:
+            if id[0][1]:#проверка есть ли пользователь в БД
+                await bot.send_message(message.chat.id, "Режим администратора включен.", reply_markup=markup_admin)
+            else:
+                await bot.send_message(message.chat.id, "У вас нет прав администратора.", reply_markup=markup_user)
         else:
-            await bot.send_message(message.chat.id, "У вас нет прав администратора.", reply_markup=markup_user)
+            await bot.send_message(message.chat.id, "Вас заблокировали", reply_markup=markup_user)
     else:
         await bot.send_message(message.chat.id, "Напишите \"/start\" для регистрации.", reply_markup=markup_user)
 
@@ -111,58 +119,109 @@ async def text_message(message):
     bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
                     os.environ.get('DB_NAME'))
 
-    id = bd.sql_execute_get(f"SELECT \"Статус\", \"Баланс\" FROM \"Пользователи\" WHERE \"id_messages\" = '{message.from_user.id}'")
+    id = bd.sql_execute_get(f"SELECT \"Статус\", \"Баланс\", \"Ban\" FROM \"Пользователи\" WHERE \"id_messages\" = '{message.from_user.id}'")
     if id:
-        if "Ввести промокод" in message.text:
-            await bot.send_message(message.chat.id, "Введите промокод или слово \"Отмена\" для отмены ввода промокода.", reply_markup=markup_user)
-            await SG.prom_code.set()
-        elif "Мой баланс" in message.text:
-            await bot.send_message(message.chat.id,
-                                   f"Ваш баланс составляет: {id[0][1]}", reply_markup=markup_user)
-        elif "Информация о боте" in message.text:
-            await bot.send_message(message.chat.id,
-                                   f"test", reply_markup=markup_user)
+        if not id[0][2]:
+            if "Ввести промокод" in message.text:
+                await bot.send_message(message.chat.id, "Введите промокод или слово \"Отмена\" для отмены ввода промокода.", reply_markup=markup_user)
+                await SG.prom_code.set()
+            elif "Мой баланс" in message.text:
+                await bot.send_message(message.chat.id,
+                                       f"Ваш баланс составляет: {id[0][1]}", reply_markup=markup_user)
+            elif "Информация о боте" in message.text:
+                await bot.send_message(message.chat.id,
+                                       f"test", reply_markup=markup_user)
 
-        elif "Рассылка информации" in message.text and id[0][0]:
-            await bot.send_message(message.chat.id,f"Введите сообщение для рассылки или слово \"Отмена\" для отмены рассылки.", reply_markup=markup_admin)
-            await SG.info.set()
-        elif "Просмотр промокодов" in message.text and id[0][0]:
-            promotional_codes = bd.sql_execute_get(f"SELECT \"Промокод\", \"Баллы\", \"Статус\" FROM \"Промокоды\"")
-            for promotional_code in promotional_codes:
-                await bot.send_message(message.chat.id, promotional_code,
+            elif "Рассылка информации" in message.text and id[0][0]:
+                await bot.send_message(message.chat.id,f"Введите сообщение для рассылки или слово \"Отмена\" для отмены рассылки.", reply_markup=markup_admin)
+                await SG.info.set()
+            elif "Просмотр промокодов" in message.text and id[0][0]:
+                info =''
+                promotional_codes = bd.sql_execute_get(f"SELECT \"Название\", \"Промокод\", \"Баллы\", \"Статус\" "
+                                                       f", \"Активировавший\" FROM \"Промокоды\"")
+                for promotional_code in promotional_codes:
+                    promotional_code = list(map(str, promotional_code))
+                    info = info + " ".join(promotional_code) + "\n"
+                await bot.send_message(message.chat.id, info,
                                        reply_markup=markup_admin)
-        elif "Редактировать промокод" in message.text and id[0][0]:
-            await bot.send_message(message.chat.id,
-                                   f"Введите промокод для редактирования или слово \"Отмена\" для отмены редактирования.",
-                                   reply_markup=markup_admin)
-            await SG.promcode_inf.set()
-        elif "Просмотр пользователей" in message.text and id[0][0]:
-            users = bd.sql_execute_get(f"SELECT \"id_messages\", \"Имя\", \"Номер телефона\", \"Использованные промокоды\", \"Баланс\", \"Статус\" FROM \"Пользователи\"")
-            for user in users:
-                await bot.send_message(message.chat.id, user,
+            elif "Редактировать промокод" in message.text and id[0][0]:
+                await bot.send_message(message.chat.id,
+                                       f"Введите промокод для редактирования или слово \"Отмена\" для отмены редактирования.",
                                        reply_markup=markup_admin)
-        elif "Редактировать пользователя" in message.text and id[0][0]:
-            await bot.send_message(message.chat.id,
-                                   f"Введите id пользователя и новый баланс для редактирования через пробел или слово \"Отмена\" для отмены редактирования.",
-                                   reply_markup=markup_admin)
-            await SG.users_editing.set()
-        elif "Закрыть сезон" in message.text and id[0][0]:
-            keyboard = InlineKeyboardMarkup()  # наша клавиатура
-            key_yes = InlineKeyboardButton(text='Да', callback_data='yes_delete')  # кнопка «Да»
-            keyboard.add(key_yes)  # добавляем кнопку в клавиатуру
-            key_no = InlineKeyboardButton(text='Нет', callback_data='no_delete')
-            keyboard.add(key_no)
-            await bot.send_message(message.from_user.id, text=f"Вы уверены что хотите закрыть сезон?"
-                                   , reply_markup=keyboard)
-        elif "Добавить новый промокод" in message.text and id[0][0]:
-            await bot.send_message(message.chat.id,
-                                   f"Введите новый промокод в формате (промокод, баллы) "
-                                   f"через пробел или слово \"Отмена\" для отмены создания нового промокода.",
-                                   reply_markup=markup_admin)
-            await SG.new_promocode.set()
+                await SG.promcode_inf.set()
+            elif "Просмотр пользователей" in message.text and id[0][0]:
+                info = ''
+                users = bd.sql_execute_get(f"SELECT \"id_messages\", \"Имя\", \"Номер телефона\", \"Использованные промокоды\", "
+                                           f"\"Баланс\", \"Статус\", \"Ban\" FROM \"Пользователи\"")
+                for user in users:
+                    user = list(map(str, user))
+                    info = info + " ".join(user) + "\n"
+                await bot.send_message(message.chat.id, info,
+                                       reply_markup=markup_admin)
+            elif "Редактировать пользователя" in message.text and id[0][0]:
+                await bot.send_message(message.chat.id,
+                                       f"Введите id пользователя и новый баланс для редактирования через пробел или слово \"Отмена\" для отмены редактирования.",
+                                       reply_markup=markup_admin)
+                await SG.users_editing.set()
+            elif "Закрыть сезон" in message.text and id[0][0]:
+                keyboard = InlineKeyboardMarkup()  # наша клавиатура
+                key_yes = InlineKeyboardButton(text='Да', callback_data='yes_delete')  # кнопка «Да»
+                keyboard.add(key_yes)  # добавляем кнопку в клавиатуру
+                key_no = InlineKeyboardButton(text='Нет', callback_data='no_delete')
+                keyboard.add(key_no)
+                await bot.send_message(message.from_user.id, text=f"Вы уверены что хотите закрыть сезон?"
+                                       , reply_markup=keyboard)
+            elif "Добавить новый промокод" in message.text and id[0][0]:
+                await bot.send_message(message.chat.id,
+                                       f"Введите название нового промокода "
+                                       f"или слово \"Отмена\" для отмены создания нового промокода.",
+                                       reply_markup=markup_admin)
+                await SG.new_name_promocode.set()
+
+            elif "Блокировка пользователя" in message.text and id[0][0]:
+                await bot.send_message(message.chat.id,
+                                       f"Введите id пользователя для блокировки "
+                                       f"или слово \"Отмена\" для отмены создания нового промокода.",
+                                       reply_markup=markup_admin)
+                await SG.ban.set()
+        else:
+            await bot.send_message(message.chat.id, "Вас заблокировали", reply_markup=markup_user)
     else:
         await bot.send_message(message.chat.id, "Напишите \"/start\" для регистрации.", reply_markup=markup_user)
     bd.bd_close()
+
+@dp.message_handler(state=SG.ban)
+async def create_ban(message: types.Message, state: FSMContext):
+    global ban_id
+    ban_id = message.text
+    await state.finish()
+    if not "Отмена" in ban_id:
+        bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
+                        os.environ.get('DB_NAME'))
+        ids = bd.sql_execute_get(f"SELECT \"Имя\" FROM \"Пользователи\" WHERE \"id_messages\" = '{ban_id}'")
+        if ids:
+            keyboard = InlineKeyboardMarkup()  # наша клавиатура
+            key_yes = InlineKeyboardButton(text='Да', callback_data='yes_ban')  # кнопка «Да»
+            keyboard.add(key_yes)  # добавляем кнопку в клавиатуру
+            key_no = InlineKeyboardButton(text='Нет', callback_data='no_ban')
+            keyboard.add(key_no)
+            await bot.send_message(message.from_user.id,
+                                   text=f"Заблокировать данного пользователя: {ban_id} {ids[0][0]}?"
+                                   , reply_markup=keyboard)
+
+
+@dp.message_handler(state=SG.new_name_promocode)
+async def create_promocode_name(message: types.Message, state: FSMContext):
+    global new_name_promocode
+    new_name_promocode = message.text
+    await state.finish()
+    if not "Отмена" in new_name_promocode:
+        await bot.send_message(message.chat.id,
+                               f"Введите новый промокод в формате (промокод, баллы) "
+                                   f"через пробел или слово \"Отмена\" для отмены создания нового промокода.",
+                               reply_markup=markup_admin)
+        await SG.new_promocode.set()
+
 
 @dp.message_handler(state=SG.new_promocode)
 async def create_promocode(message: types.Message, state: FSMContext):
@@ -174,7 +233,7 @@ async def create_promocode(message: types.Message, state: FSMContext):
     keyboard.add(key_yes)  # добавляем кнопку в клавиатуру
     key_no = InlineKeyboardButton(text='Нет', callback_data='no_new_prom')
     keyboard.add(key_no)
-    await bot.send_message(message.from_user.id, text=f"Данные нового промокода:\n"
+    await bot.send_message(message.from_user.id, text=f"Данные списка новых промокодов для добавления в {new_name_promocode}:\n"
                                                       f"{promocod_new}"
                            , reply_markup=keyboard)
     promocod_new = promocod_new.split("\n")
@@ -269,7 +328,7 @@ async def checking_promotional_code(message: types.Message, state: FSMContext):
                                    f"\"Использованные промокоды\" = '{promotional_code_user}' "
                                    f"WHERE \"id_messages\" = '{message.from_user.id}'")
 
-                bd.sql_execute(f"UPDATE \"Промокоды\" SET \"Статус\" = {False} "
+                bd.sql_execute(f"UPDATE \"Промокоды\" SET \"Статус\" = {False},  \"Активировавший\" = '{message.from_user.id}'"
                                f"WHERE \"Промокод\" = '{promotional_code_user}'")
                 await bot.send_message(message.chat.id, "Промокод успешно активирован.", reply_markup=markup_user)
             else:
@@ -327,7 +386,7 @@ async def callback_worker(call):
     elif call.data == "no_ed_user":
         await bot.send_message(call.message.chat.id, "Изменения пользователя отменено.", reply_markup=markup_admin)
 
-    elif call.data == "yes_delete": #call.data это callback_data, которую мы указали при объявлении кнопки
+    elif call.data == "yes_delete_repeated": #call.data это callback_data, которую мы указали при объявлении кнопки
 
         bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
                         os.environ.get('DB_NAME'))
@@ -335,7 +394,7 @@ async def callback_worker(call):
         bd.sql_execute(f"UPDATE \"Промокоды\" SET \"Статус\" = {False}")
         bd.bd_close()
         await bot.send_message(call.message.chat.id, "Сезон закрыт.", reply_markup=markup_admin)
-    elif call.data == "no_delete":
+    elif call.data == "no_delete_repeated":
         await bot.send_message(call.message.chat.id, "Закрытие сезона отменено.", reply_markup=markup_admin)
 
     elif call.data == "yes_new_prom": #call.data это callback_data, которую мы указали при объявлении кнопки
@@ -346,9 +405,10 @@ async def callback_worker(call):
                 pr_nw = pr_nw.split(" ")
                 ids = bd.sql_execute_get(f"SELECT \"ID\" FROM \"Промокоды\" WHERE \"Промокод\" = '{pr_nw[0]}'")
                 if not ids:
-                    bd.sql_execute( f"INSERT INTO \"Промокоды\" (\"Промокод\", \"Баллы\", \"Статус\") "
-                    f"VALUES ('{pr_nw[0]}', {pr_nw[1]}, {True})")
-                    await bot.send_message(call.message.chat.id, f"Промокод {pr_nw[0]} добавлен.", reply_markup=markup_admin)
+                    bd.sql_execute( f"INSERT INTO \"Промокоды\" (\"Название\", \"Промокод\", \"Баллы\", \"Статус\") "
+                    f"VALUES ('{new_name_promocode}', '{pr_nw[0]}', {pr_nw[1]}, {True})")
+                    await bot.send_message(call.message.chat.id, f"Промокод {pr_nw[0]} добавлен в {new_name_promocode}.",
+                                           reply_markup=markup_admin)
                 else:
                     await bot.send_message(call.message.chat.id, f"Промокод {pr_nw[0]} уже существует.", reply_markup=markup_admin)
         except:
@@ -362,12 +422,33 @@ async def callback_worker(call):
         bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
                         os.environ.get('DB_NAME'))
         bd.sql_execute(
-            "INSERT INTO \"Пользователи\" (\"id_messages\", \"Имя\", \"Номер телефона\", \"Баланс\", \"Статус\") "
-            f"VALUES ({call.message.chat.id}, '{name}', '{phone}', {0}, {False})")
+            "INSERT INTO \"Пользователи\" (\"id_messages\", \"Имя\", \"Номер телефона\", \"Баланс\", \"Статус\", \"Ban\") "
+            f"VALUES ({call.message.chat.id}, '{name}', '{phone}', {0}, {False}, {False})")
         await bot.send_message(call.message.chat.id, "Регистрация прошла успешно.", reply_markup=markup_user)
 
     elif call.data == "no_registration":
         await bot.send_message(call.message.chat.id, "Отмена регистрации.", reply_markup=markup_user)
+
+    elif call.data == "yes_delete": #call.data это callback_data, которую мы указали при объявлении кнопки
+        keyboard = InlineKeyboardMarkup()  # наша клавиатура
+        key_yes = InlineKeyboardButton(text='Да', callback_data='yes_delete_repeated')  # кнопка «Да»
+        keyboard.add(key_yes)  # добавляем кнопку в клавиатуру
+        key_no = InlineKeyboardButton(text='Нет', callback_data='no_delete_repeated')
+        keyboard.add(key_no)
+        await bot.send_message(call.message.chat.id, text=f"Вы подвели итоги сезона перед его закрытием?"
+                               , reply_markup=keyboard)
+
+    elif call.data == "no_delete":
+        await bot.send_message(call.message.chat.id, "Закрытие сезона отменено.", reply_markup=markup_admin)
+
+    elif call.data == "yes_ban": #call.data это callback_data, которую мы указали при объявлении кнопки
+        bd = bd_connect(os.environ.get('HOST'), os.environ.get('USERS'), os.environ.get('PASSWORD'),
+                        os.environ.get('DB_NAME'))
+        bd.sql_execute(f"UPDATE \"Пользователи\" SET \"Ban\" = {True} WHERE \"id_messages\" = '{ban_id}'")
+        await bot.send_message(call.message.chat.id, "Пользователь успешно заблокирован.", reply_markup=markup_admin)
+
+    elif call.data == "no_ban":
+        await bot.send_message(call.message.chat.id, "Отмена блокировки.", reply_markup=markup_admin)
 
 
 async def main():

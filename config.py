@@ -5,11 +5,14 @@ TABLE = ['CREATE TABLE IF NOT EXISTS "Пользователи" ( '
         '"Номер телефона"	TEXT,'
         '"Использованные промокоды" TEXT,'
         '"Баланс" INTEGER,'
-        '"Статус" BOOlEAN)',
+        '"Статус" BOOlEAN,'
+        '"Ban" BOOlEAN)',
 
         'CREATE TABLE IF NOT EXISTS "Промокоды" ( ' 
         '"ID"	serial primary key,' 
+        '"Название"	TEXT,' 
         '"Промокод"	TEXT,'
         '"Баллы" INTEGER,'
-        '"Статус" BOOlEAN)'
+        '"Статус" BOOlEAN,'
+        '"Активировавший" TEXT)'
         ]
